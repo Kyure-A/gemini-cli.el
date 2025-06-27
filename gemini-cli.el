@@ -56,6 +56,36 @@
   :type 'boolean
   :group 'gemini-cli)
 
+(defcustom gemini-cli-keymap-prefix (kbd "C-c g")
+  "Prefix key for `gemini-cli` commands."
+  :type 'key-sequence
+  :group 'gemini-cli)
+
+(defcustom gemini-cli-start-key (kbd "s")
+  "Key to bind `gemini-cli-start` under `gemini-cli-keymap-prefix`."
+  :type 'key-sequence
+  :group 'gemini-cli)
+
+(defcustom gemini-cli-stop-key (kbd "q")
+  "Key to bind `gemini-cli-stop` under `gemini-cli-keymap-prefix`."
+  :type 'key-sequence
+  :group 'gemini-cli)
+
+(defcustom gemini-cli-restart-key (kbd "r")
+  "Key to bind `gemini-cli-restart` under `gemini-cli-keymap-prefix`."
+  :type 'key-sequence
+  :group 'gemini-cli)
+
+(defcustom gemini-cli-send-buffer-key (kbd "b")
+  "Key to bind `gemini-cli-send-buffer-as-context` under `gemini-cli-keymap-prefix`."
+  :type 'key-sequence
+  :group 'gemini-cli)
+
+(defcustom gemini-cli-send-region-key (kbd "R")
+  "Key to bind `gemini-cli-send-region-as-context` under `gemini-cli-keymap-prefix`."
+  :type 'key-sequence
+  :group 'gemini-cli)
+
 ;;;;; Core Process Management
 
 (defvar-local gemini-cli--process nil
@@ -204,6 +234,15 @@
   (gemini-cli-stop)
   (sleep-for 0.1)
   (gemini-cli-start))
+
+;;;;; Keybindings
+
+(define-key global-map gemini-cli-keymap-prefix 'gemini-cli)
+(define-key (lookup-key global-map gemini-cli-keymap-prefix) gemini-cli-start-key 'gemini-cli-start)
+(define-key (lookup-key global-map gemini-cli-keymap-prefix) gemini-cli-stop-key 'gemini-cli-stop)
+(define-key (lookup-key global-map gemini-cli-keymap-prefix) gemini-cli-restart-key 'gemini-cli-restart)
+(define-key (lookup-key global-map gemini-cli-keymap-prefix) gemini-cli-send-buffer-key 'gemini-cli-send-buffer-as-context)
+(define-key (lookup-key global-map gemini-cli-keymap-prefix) gemini-cli-send-region-key 'gemini-cli-send-region-as-context)
 
 (provide 'gemini-cli)
 
