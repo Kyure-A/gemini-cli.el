@@ -86,6 +86,11 @@
   :type 'key-sequence
   :group 'gemini-cli)
 
+(defcustom gemini-cli-extract-code-key (kbd "e")
+  "Key to bind `gemini-cli-extract-last-code-block` under `gemini-cli-keymap-prefix`."
+  :type 'key-sequence
+  :group 'gemini-cli)
+
 (defcustom gemini-cli-prompt-templates
   '(("Summarize Buffer" "Summarize the following content:
 @buffer")
@@ -113,49 +118,52 @@ Placeholders:
 (defvar-local gemini-cli--code-block-lang nil
   "The language of the current code block.")
 
-(defun gemini-cli--format-output (start end)
-  "Format the output in the buffer between START and END."
+(defun gemini-cli--fontify-code-blocks (start end)
+  "Fontify code blocks in the buffer between START and END."
   (save-excursion
     (goto-char start)
-    (while (re-search-forward "^\s-*\(```\)\(.*\)?$" nil t)
+    (while (re-search-forward "^\s-*\(```\)\(.*\)?$" end t)
       (let* ((fence-start (match-beginning 1))
              (fence-end (match-end 1))
              (lang (if (match-string 2) (string-trim (match-string 2)) nil)))
         (if gemini-cli--in-code-block
-            ;; End of code block
             (progn
               (setq gemini-cli--in-code-block nil)
               (setq gemini-cli--code-block-lang nil)
               (put-text-property fence-start fence-end 'face 'font-lock-comment-face))
-          ;; Start of code block
           (setq gemini-cli--in-code-block t)
           (setq gemini-cli--code-block-lang lang)
           (put-text-property fence-start fence-end 'face 'font-lock-comment-face))))
-
-    ;; Apply font-lock to code blocks
     (when gemini-cli--in-code-block
-      (let ((mode (cond
-                   ((string= gemini-cli--code-block-lang "elisp") 'emacs-lisp-mode)
-                   ((string= gemini-cli--code-block-lang "python") 'python-mode)
-                   ((string= gemini-cli--code-block-lang "js") 'js-mode)
-                   ((string= gemini-cli--code-block-lang "json") 'json-mode)
-                   ((string= gemini-cli--code-block-lang "sh") 'sh-mode)
-                   ((string= gemini-cli--code-block-lang "bash") 'sh-mode)
-                   ((string= gemini-cli--code-block-lang "diff") 'diff-mode)
-                   (t nil))))
+      (let ((mode (pcase gemini-cli--code-block-lang
+                    ("elisp" 'emacs-lisp-mode)
+                    ("python" 'python-mode)
+                    ("js" 'js-mode)
+                    ("json" 'json-mode)
+                    ("sh" 'sh-mode)
+                    ("bash" 'sh-mode)
+                    ("diff" 'diff-mode)
+                    (_ nil))))
         (when mode
-          (font-lock-fontify-region start end nil mode))))
+          (font-lock-fontify-region start end nil mode))))))
 
-    ;; Make URLs clickable
+(defun gemini-cli--make-urls-clickable (start end)
+  "Make URLs clickable in the buffer between START and END."
+  (save-excursion
     (goto-char start)
-    (while (re-search-forward url-regexp nil t)
+    (while (re-search-forward url-regexp end t)
       (let ((url (match-string 0)))
         (add-text-properties (match-beginning 0) (match-end 0)
                              '(face font-lock-url-face
-                               help-echo "mouse-2: follow link" 
+                               help-echo "mouse-2: follow link"
                                mouse-face highlight
                                local-map (keymap (mouse-2 . browse-url))
                                url t))))))
+
+(defun gemini-cli--format-output (start end)
+  "Format the output in the buffer between START and END."
+  (gemini-cli--fontify-code-blocks start end)
+  (gemini-cli--make-urls-clickable start end))
 
 (defun gemini-cli--process-filter (proc string)
   "Process filter to handle output from the Gemini CLI."
@@ -240,30 +248,52 @@ Placeholders:
 
 (defun gemini-cli--write-to-temp-file (content)
   "Write CONTENT to a temporary file and return its path."
-  (let* ((temp-dir (make-temp-file "gemini-cli-" t))
-         (temp-file (expand-file-name "context.txt" temp-dir)))
-    (make-directory temp-dir t)
+  (let ((temp-file (make-temp-file "gemini-cli-" nil ".txt")))
     (with-temp-file temp-file
       (insert content))
     temp-file))
 
+(defun gemini-cli--send-content-as-context (content type)
+  "Send CONTENT to Gemini as context from a temporary file.
+
+TYPE is a string indicating the source of the content (e.g., "buffer", "region")."
+  (let ((temp-file (gemini-cli--write-to-temp-file content)))
+    (gemini-cli-send-input (concat "@" temp-file))
+    (message "Sent %s content as context from %s" type temp-file)))
+
 (defun gemini-cli-send-buffer-as-context ()
   "Send the content of the current buffer as context to the Gemini CLI."
   (interactive)
-  (let* ((content (buffer-string))
-         (temp-file (gemini-cli--write-to-temp-file content)))
-    (gemini-cli-send-input (concat "@" temp-file))
-    (message "Sent buffer content as context from %s" temp-file)))
+  (gemini-cli--send-content-as-context (buffer-string) "buffer"))
 
 (defun gemini-cli-send-region-as-context ()
   "Send the content of the active region as context to the Gemini CLI."
   (interactive)
   (if (use-region-p)
-      (let* ((content (buffer-substring (region-beginning) (region-end)))
-             (temp-file (gemini-cli--write-to-temp-file content)))
-        (gemini-cli-send-input (concat "@" temp-file))
-        (message "Sent region content as context from %s" temp-file))
+      (gemini-cli--send-content-as-context (buffer-substring (region-beginning) (region-end)) "region")
     (error "No region active. Mark a region first.")))
+
+(defun gemini-cli-extract-last-code-block ()
+  "Extract the last code block from the `*gemini-cli*` buffer."
+  (interactive)
+  (let ((cli-buffer (get-buffer "*gemini-cli*")))
+    (unless cli-buffer
+      (error "Gemini CLI buffer not found."))
+    (with-current-buffer cli-buffer
+      (let* ((end (point-max))
+             (start (save-excursion
+                      (re-search-backward "```" nil t)))
+             (code (buffer-substring-no-properties start end)))
+        (unless start
+          (error "No code block found in the Gemini CLI buffer."))
+        (if (called-interactively-p 'any)
+            (let ((action (read-char-choice "Extract to (i)nsert or (c)opy? " '(?i ?c))))
+              (pcase action
+                (?i (with-current-buffer (window-buffer)
+                      (insert code)))
+                (?c (kill-new code)
+                    (message "Code block copied to kill ring."))))
+          (kill-new code))))))
 
 ;;;###autoload
 (transient-define-prefix gemini-cli ()
@@ -274,7 +304,8 @@ Placeholders:
    ("t" "Template" gemini-cli-send-template)
    ("@" "Add File" gemini-cli-read-at-command)
    ("b" "Send Buffer as Context" gemini-cli-send-buffer-as-context)
-   ("r" "Send Region as Context" gemini-cli-send-region-as-context)]
+   ("r" "Send Region as Context" gemini-cli-send-region-as-context)
+   ("e" "Extract Last Code Block" gemini-cli-extract-last-code-block)]
   ["Process"
    ("R" "Restart" gemini-cli-restart)
    ("q" "Quit" gemini-cli-stop)])
@@ -313,14 +344,11 @@ Placeholders:
 (defun gemini-cli-stop ()
   "Stop the Gemini CLI process."
   (interactive)
-  (let ((process (when (get-buffer "*gemini-cli*")
-                   (with-current-buffer "*gemini-cli*"
-                     gemini-cli--process))))
-    (if (and process (process-live-p process))
-        (progn
-          (quit-process process)
-          (message "Gemini CLI stopped."))
-      (message "Gemini CLI is not running."))))
+  (if-let ((process (get-buffer-process "*gemini-cli*")))
+      (progn
+        (quit-process process)
+        (message "Gemini CLI stopped."))
+    (message "Gemini CLI is not running.")))
 
 (defun gemini-cli-restart ()
   "Restart the Gemini CLI process."
@@ -337,6 +365,7 @@ Placeholders:
 (define-key (lookup-key global-map gemini-cli-keymap-prefix) gemini-cli-restart-key 'gemini-cli-restart)
 (define-key (lookup-key global-map gemini-cli-keymap-prefix) gemini-cli-send-buffer-key 'gemini-cli-send-buffer-as-context)
 (define-key (lookup-key global-map gemini-cli-keymap-prefix) gemini-cli-send-region-key 'gemini-cli-send-region-as-context)
+(define-key (lookup-key global-map gemini-cli-keymap-prefix) gemini-cli-extract-code-key 'gemini-cli-extract-last-code-block)
 
 (provide 'gemini-cli)
 
