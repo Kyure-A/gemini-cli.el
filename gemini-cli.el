@@ -1,0 +1,181 @@
+;;; gemini-cli.el --- Emacs integration for the Gemini CLI
+
+;; Copyright (C) 2024 Kyure-A
+;;
+;; Author: Kyure-A <kyure.a@gmail.com>
+;; Keywords: ai, tools, convenience
+;; URL: https://github.com/Kyure-A/gemini-cli.el
+;; Package-Requires: ((emacs "30.1") (transient "0.4.0") (eat "0.8"))
+;;
+;; This file is not part of GNU Emacs.
+;;
+;; This program is free software; you can redistribute it and/or modify
+;; it under the terms of the GNU General Public License as published by
+;; the Free Software Foundation, either version 3 of the License, or
+;; (at your option) any later version.
+;;
+;; This program is distributed in the hope that it will be useful,
+;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;; GNU General Public License for more details.
+;;
+;; You should have received a copy of the GNU General Public License
+;; along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+;;; Commentary:
+;;
+;; This package provides an Emacs integration for the Google Gemini CLI.
+;; It allows you to interact with the Gemini AI from within Emacs,
+;; providing a seamless workflow for coding, writing, and more.
+;;
+;; To get started, run `M-x gemini-cli-start`.
+;;
+;;; Code:
+
+(require 'ansi-color)
+(require 'transient)
+
+;;;;; Customization Variables
+
+(defgroup gemini-cli nil
+  "Emacs integration for the Gemini CLI."
+  :group 'applications)
+
+(defcustom gemini-cli-start-command '("npx" "https://github.com/google-gemini/gemini-cli")
+  "The base command and arguments to launch the Gemini CLI."
+  :type '(repeat string)
+  :group 'gemini-cli)
+
+(defcustom gemini-cli-model nil
+  "The Gemini model to use (e.g., \"gemini-1.5-pro\")."
+  :type '(string :tag "Model Name")
+  :group 'gemini-cli)
+
+(defcustom gemini-cli-yolo-mode nil
+  "If non-nil, run in YOLO mode, automatically accepting all actions."
+  :type 'boolean
+  :group 'gemini-cli)
+
+;;;;; Core Process Management
+
+(defvar-local gemini-cli--process nil
+  "The Gemini CLI process object for the current buffer.")
+
+(defun gemini-cli--process-filter (proc string)
+  "Process filter to handle output from the Gemini CLI."
+  (when (buffer-live-p (process-buffer proc))
+    (with-current-buffer (process-buffer proc)
+      (let ((inhibit-read-only t))
+        (goto-char (process-mark proc))
+        (insert string)
+        (ansi-color-apply-on-region (process-mark proc) (point))
+        (set-marker (process-mark proc) (point))))))
+
+(defun gemini-cli--process-sentinel (proc msg)
+  "Process sentinel to handle process termination."
+  (when (buffer-live-p (process-buffer proc))
+    (with-current-buffer (process-buffer proc)
+      (message "Gemini CLI process terminated: %s" msg)
+      (setq-local gemini-cli--process nil))))
+
+(defun gemini-cli-send-input (input)
+  "Send INPUT to the Gemini CLI process."
+  (if (and (local-variable-p 'gemini-cli--process) gemini-cli--process (process-live-p gemini-cli--process))
+      (progn
+        (process-send-string gemini-cli--process (concat input "
+"))
+        (with-current-buffer (process-buffer gemini-cli--process)
+          (add-to-history 'gemini-cli--input-history input)))
+    (error "Gemini CLI is not running. Run `gemini-cli-start` first")))
+
+;;;;; UI Functions
+
+(defvar-local gemini-cli--input-history nil
+  "History of sent inputs.")
+
+(defconst gemini-cli--slash-commands
+  '("/help" "/tools" "/memory show" "/mcp")
+  "A list of common Gemini CLI slash commands.")
+
+(defun gemini-cli-read-slash-command ()
+  "Read a slash command from the user with completion."
+  (interactive)
+  (let ((command (completing-read "Slash command: " gemini-cli--slash-commands nil t)))
+    (gemini-cli-send-input command)))
+
+(defun gemini-cli-read-prompt ()
+  "Read a prompt from the user and send it."
+  (interactive)
+  (let ((prompt (read-string "Prompt: " nil 'gemini-cli--input-history)))
+    (gemini-cli-send-input prompt)))
+
+(defun gemini-cli-read-at-command ()
+  "Read a file path to add to the prompt."
+  (interactive)
+  (let ((file (read-file-name "File to add: ")))
+    (gemini-cli-send-input (concat "@" file))))
+
+;;;###autoload
+(transient-define-prefix gemini-cli ()
+  "Transient command for interacting with the Gemini CLI."
+  ["Gemini CLI"
+   ("p" "Prompt" gemini-cli-read-prompt)
+   ("s" "Slash Command" gemini-cli-read-slash-command)
+   ("@" "Add File" gemini-cli-read-at-command)]
+  ["Process"
+   ("r" "Restart" gemini-cli-restart)
+   ("q" "Quit" gemini-cli-stop)])
+
+;;;;; Major Mode and Entry Points
+
+(define-derived-mode gemini-cli-mode comint-mode "Gemini-CLI"
+  "Major mode for interacting with the Gemini CLI.
+\{gemini-cli-mode-map}"
+  :syntax-table nil
+  :abbrev-table nil
+  (setq-local comint-prompt-regexp "^> ")
+  (setq-local comint-process-echoes t)
+  (setq-local comint-get-old-input (lambda () "")))
+
+;;;###autoload
+(defun gemini-cli-start ()
+  "Start the Gemini CLI process and open its interaction buffer."
+  (interactive)
+  (let* ((buf-name "*gemini-cli*")
+         (buffer (get-buffer-create buf-name))
+         (command (append gemini-cli-start-command
+                          (when gemini-cli-model (list "--model" gemini-cli-model))
+                          (when gemini-cli-yolo-mode (list "--yolo")))))
+    (with-current-buffer buffer
+      (gemini-cli-mode)
+      (when (and (local-variable-p 'gemini-cli--process) gemini-cli--process (process-live-p gemini-cli--process))
+        (error "Gemini CLI is already running in %s" buf-name))
+      (setq-local gemini-cli--process (apply #'start-process "gemini-cli" buffer command))
+      (set-process-filter gemini-cli--process #'gemini-cli--process-filter)
+      (set-process-sentinel gemini-cli--process #'gemini-cli--process-sentinel)
+      (set-buffer-process buffer gemini-cli--process))
+    (display-buffer buffer)))
+
+;;;###autoload
+(defun gemini-cli-stop ()
+  "Stop the Gemini CLI process."
+  (interactive)
+  (let ((process (when (get-buffer "*gemini-cli*")
+                   (with-current-buffer "*gemini-cli*"
+                     gemini-cli--process))))
+    (if (and process (process-live-p process))
+        (progn
+          (quit-process process)
+          (message "Gemini CLI stopped."))
+      (message "Gemini CLI is not running."))))
+
+(defun gemini-cli-restart ()
+  "Restart the Gemini CLI process."
+  (interactive)
+  (gemini-cli-stop)
+  (sleep-for 0.1)
+  (gemini-cli-start))
+
+(provide 'gemini-cli)
+
+;;; gemini-cli.el ends here
