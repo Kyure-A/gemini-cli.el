@@ -128,7 +128,18 @@
                    ((string= gemini-cli--code-block-lang "diff") 'diff-mode)
                    (t nil))))
         (when mode
-          (font-lock-fontify-region start end nil mode)))))
+          (font-lock-fontify-region start end nil mode))))
+
+    ;; Make URLs clickable
+    (goto-char start)
+    (while (re-search-forward url-regexp nil t)
+      (let ((url (match-string 0)))
+        (add-text-properties (match-beginning 0) (match-end 0)
+                             '(face font-lock-url-face
+                               help-echo "mouse-2: follow link" 
+                               mouse-face highlight
+                               local-map (keymap (mouse-2 . browse-url))
+                               url t))))))
 
 (defun gemini-cli--process-filter (proc string)
   "Process filter to handle output from the Gemini CLI."
