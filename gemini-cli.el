@@ -115,15 +115,44 @@
   (let ((file (read-file-name "File to add: ")))
     (gemini-cli-send-input (concat "@" file))))
 
+(defun gemini-cli--write-to-temp-file (content)
+  "Write CONTENT to a temporary file and return its path."
+  (let* ((temp-dir (make-temp-file "gemini-cli-" t))
+         (temp-file (expand-file-name "context.txt" temp-dir)))
+    (make-directory temp-dir t)
+    (with-temp-file temp-file
+      (insert content))
+    temp-file))
+
+(defun gemini-cli-send-buffer-as-context ()
+  "Send the content of the current buffer as context to the Gemini CLI."
+  (interactive)
+  (let* ((content (buffer-string))
+         (temp-file (gemini-cli--write-to-temp-file content)))
+    (gemini-cli-send-input (concat "@" temp-file))
+    (message "Sent buffer content as context from %s" temp-file)))
+
+(defun gemini-cli-send-region-as-context ()
+  "Send the content of the active region as context to the Gemini CLI."
+  (interactive)
+  (if (use-region-p)
+      (let* ((content (buffer-substring (region-beginning) (region-end)))
+             (temp-file (gemini-cli--write-to-temp-file content)))
+        (gemini-cli-send-input (concat "@" temp-file))
+        (message "Sent region content as context from %s" temp-file))
+    (error "No region active. Mark a region first.")))
+
 ;;;###autoload
 (transient-define-prefix gemini-cli ()
   "Transient command for interacting with the Gemini CLI."
   ["Gemini CLI"
    ("p" "Prompt" gemini-cli-read-prompt)
    ("s" "Slash Command" gemini-cli-read-slash-command)
-   ("@" "Add File" gemini-cli-read-at-command)]
+   ("@" "Add File" gemini-cli-read-at-command)
+   ("b" "Send Buffer as Context" gemini-cli-send-buffer-as-context)
+   ("r" "Send Region as Context" gemini-cli-send-region-as-context)]
   ["Process"
-   ("r" "Restart" gemini-cli-restart)
+   ("R" "Restart" gemini-cli-restart)
    ("q" "Quit" gemini-cli-stop)])
 
 ;;;;; Major Mode and Entry Points
@@ -177,5 +206,6 @@
   (gemini-cli-start))
 
 (provide 'gemini-cli)
+
 
 ;;; gemini-cli.el ends here
