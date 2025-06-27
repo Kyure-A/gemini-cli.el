@@ -86,6 +86,22 @@
   :type 'key-sequence
   :group 'gemini-cli)
 
+(defcustom gemini-cli-prompt-templates
+  '(("Summarize Buffer" "Summarize the following content:
+@buffer")
+    ("Explain Region" "Explain the following code:
+@region")
+    ("Fix Error" "Fix the following error in the code:
+{{prompt}}
+@buffer"))
+  "A list of prompt templates. Each element is a list of (NAME TEMPLATE-STRING).
+Placeholders:
+- `@buffer`: Replaced by the current buffer's content.
+- `@region`: Replaced by the current region's content.
+- `{{prompt}}`: Prompts the user for additional input."
+  :type '(repeat (list string string))
+  :group 'gemini-cli)
+
 ;;;;; Core Process Management
 
 (defvar-local gemini-cli--process nil
@@ -199,6 +215,29 @@
   (let ((file (read-file-name "File to add: ")))
     (gemini-cli-send-input (concat "@" file))))
 
+(defun gemini-cli--expand-template (template-string)
+  "Expand TEMPLATE-STRING by replacing placeholders."
+  (let ((expanded-string template-string))
+    (when (string-match-p "@buffer" expanded-string)
+      (setq expanded-string (replace-regexp-in-string "@buffer" (buffer-string) expanded-string)))
+    (when (string-match-p "@region" expanded-string)
+      (if (use-region-p)
+          (setq expanded-string (replace-regexp-in-string "@region" (buffer-substring (region-beginning) (region-end)) expanded-string))
+        (error "No region active for @region placeholder.")))
+    (when (string-match-p "{{prompt}}" expanded-string)
+      (let ((user-input (read-string "Enter additional input for template: ")))
+        (setq expanded-string (replace-regexp-in-string "{{prompt}}" user-input expanded-string))))
+    expanded-string))
+
+(defun gemini-cli-send-template ()
+  "Select a prompt template and send it to the Gemini CLI."
+  (interactive)
+  (let* ((template-names (mapcar #'car gemini-cli-prompt-templates))
+         (selected-name (completing-read "Select template: " template-names nil t))
+         (selected-template (cdr (assoc selected-name gemini-cli-prompt-templates)))
+         (expanded-prompt (gemini-cli--expand-template selected-template)))
+    (gemini-cli-send-input expanded-prompt)))
+
 (defun gemini-cli--write-to-temp-file (content)
   "Write CONTENT to a temporary file and return its path."
   (let* ((temp-dir (make-temp-file "gemini-cli-" t))
@@ -232,6 +271,7 @@
   ["Gemini CLI"
    ("p" "Prompt" gemini-cli-read-prompt)
    ("s" "Slash Command" gemini-cli-read-slash-command)
+   ("t" "Template" gemini-cli-send-template)
    ("@" "Add File" gemini-cli-read-at-command)
    ("b" "Send Buffer as Context" gemini-cli-send-buffer-as-context)
    ("r" "Send Region as Context" gemini-cli-send-region-as-context)]
