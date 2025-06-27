@@ -2,7 +2,7 @@
 
 ;; Copyright (C) 2024 Kyure-A
 ;;
-;; Author: Kyure-A <kyure.a@gmail.com>
+;; Author: Kyure-A <github.com/Kyure-A>
 ;; Keywords: ai, tools, convenience
 ;; URL: https://github.com/Kyure-A/gemini-cli.el
 ;; Package-Requires: ((emacs "30.1") (transient "0.4.0") (eat "0.8"))
