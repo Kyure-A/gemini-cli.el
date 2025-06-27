@@ -295,6 +295,9 @@ TYPE is a string indicating the source of the content (e.g., "buffer", "region")
                     (message "Code block copied to kill ring."))))
           (kill-new code))))))
 
+(defvar gemini-cli-map (make-sparse-keymap)
+  "Keymap for `gemini-cli` commands.")
+
 ;;;###autoload
 (transient-define-prefix gemini-cli ()
   "Transient command for interacting with the Gemini CLI."
@@ -359,13 +362,16 @@ TYPE is a string indicating the source of the content (e.g., "buffer", "region")
 
 ;;;;; Keybindings
 
-(define-key global-map gemini-cli-keymap-prefix 'gemini-cli)
-(define-key (lookup-key global-map gemini-cli-keymap-prefix) gemini-cli-start-key 'gemini-cli-start)
-(define-key (lookup-key global-map gemini-cli-keymap-prefix) gemini-cli-stop-key 'gemini-cli-stop)
-(define-key (lookup-key global-map gemini-cli-keymap-prefix) gemini-cli-restart-key 'gemini-cli-restart)
-(define-key (lookup-key global-map gemini-cli-keymap-prefix) gemini-cli-send-buffer-key 'gemini-cli-send-buffer-as-context)
-(define-key (lookup-key global-map gemini-cli-keymap-prefix) gemini-cli-send-region-key 'gemini-cli-send-region-as-context)
-(define-key (lookup-key global-map gemini-cli-keymap-prefix) gemini-cli-extract-code-key 'gemini-cli-extract-last-code-block)
+(defvar gemini-cli-map (make-sparse-keymap)
+  "Keymap for `gemini-cli` commands.")
+
+(define-key global-map gemini-cli-keymap-prefix gemini-cli-map)
+(define-key gemini-cli-map gemini-cli-start-key 'gemini-cli-start)
+(define-key gemini-cli-map gemini-cli-stop-key 'gemini-cli-stop)
+(define-key gemini-cli-map gemini-cli-restart-key 'gemini-cli-restart)
+(define-key gemini-cli-map gemini-cli-send-buffer-key 'gemini-cli-send-buffer-as-context)
+(define-key gemini-cli-map gemini-cli-send-region-key 'gemini-cli-send-region-as-context)
+(define-key gemini-cli-map gemini-cli-extract-code-key 'gemini-cli-extract-last-code-block)
 
 (provide 'gemini-cli)
 
