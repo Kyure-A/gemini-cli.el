@@ -70,6 +70,12 @@ For manual execution, you can use the following commands:
 -   **`GEMINI.md`**: This development guide.
 -   **`LICENSE`**: The license file (GPL-3.0).
 
+## Git Workflow
+
+-   **Commit Granularity**: Aim for small, focused commits. Each commit should ideally address a single logical change (e.g., a new feature, a bug fix, a refactoring). This makes the commit history easier to review, revert, and understand.
+-   **Commit Messages**: Write clear, concise, and descriptive commit messages. Follow the conventional commits specification (e.g., `feat: add new feature`, `fix: resolve bug in X`). The subject line should be brief, followed by a blank line and a more detailed body if necessary.
+-   **Branching**: Use feature branches for new features or bug fixes. Avoid committing directly to `master` (or `main`).
+
 ## Example User Configuration
 
 To help users get started, provide a `use-package` example in the `README.md`.
