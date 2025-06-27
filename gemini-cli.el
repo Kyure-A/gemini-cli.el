@@ -91,14 +91,55 @@
 (defvar-local gemini-cli--process nil
   "The Gemini CLI process object for the current buffer.")
 
+(defvar-local gemini-cli--in-code-block nil
+  "Non-nil if currently inside a code block.")
+
+(defvar-local gemini-cli--code-block-lang nil
+  "The language of the current code block.")
+
+(defun gemini-cli--format-output (start end)
+  "Format the output in the buffer between START and END."
+  (save-excursion
+    (goto-char start)
+    (while (re-search-forward "^\s-*\(```\)\(.*\)?$" nil t)
+      (let* ((fence-start (match-beginning 1))
+             (fence-end (match-end 1))
+             (lang (if (match-string 2) (string-trim (match-string 2)) nil)))
+        (if gemini-cli--in-code-block
+            ;; End of code block
+            (progn
+              (setq gemini-cli--in-code-block nil)
+              (setq gemini-cli--code-block-lang nil)
+              (put-text-property fence-start fence-end 'face 'font-lock-comment-face))
+          ;; Start of code block
+          (setq gemini-cli--in-code-block t)
+          (setq gemini-cli--code-block-lang lang)
+          (put-text-property fence-start fence-end 'face 'font-lock-comment-face))))
+
+    ;; Apply font-lock to code blocks
+    (when gemini-cli--in-code-block
+      (let ((mode (cond
+                   ((string= gemini-cli--code-block-lang "elisp") 'emacs-lisp-mode)
+                   ((string= gemini-cli--code-block-lang "python") 'python-mode)
+                   ((string= gemini-cli--code-block-lang "js") 'js-mode)
+                   ((string= gemini-cli--code-block-lang "json") 'json-mode)
+                   ((string= gemini-cli--code-block-lang "sh") 'sh-mode)
+                   ((string= gemini-cli--code-block-lang "bash") 'sh-mode)
+                   ((string= gemini-cli--code-block-lang "diff") 'diff-mode)
+                   (t nil))))
+        (when mode
+          (font-lock-fontify-region start end nil mode)))))
+
 (defun gemini-cli--process-filter (proc string)
   "Process filter to handle output from the Gemini CLI."
   (when (buffer-live-p (process-buffer proc))
     (with-current-buffer (process-buffer proc)
-      (let ((inhibit-read-only t))
+      (let ((inhibit-read-only t)
+            (old-point (point)))
         (goto-char (process-mark proc))
         (insert string)
         (ansi-color-apply-on-region (process-mark proc) (point))
+        (gemini-cli--format-output old-point (point))
         (set-marker (process-mark proc) (point))))))
 
 (defun gemini-cli--process-sentinel (proc msg)
@@ -106,7 +147,9 @@
   (when (buffer-live-p (process-buffer proc))
     (with-current-buffer (process-buffer proc)
       (message "Gemini CLI process terminated: %s" msg)
-      (setq-local gemini-cli--process nil))))
+      (setq-local gemini-cli--process nil)
+      (setq-local gemini-cli--in-code-block nil)
+      (setq-local gemini-cli--code-block-lang nil))))
 
 (defun gemini-cli-send-input (input)
   "Send INPUT to the Gemini CLI process."
